@@ -41,7 +41,7 @@ public:
     barrier(const barrier &) = delete;
     barrier & operator=(const barrier &) = delete;
 
-    _LIBCUDACXX_INLINE_VISIBILITY _LIBCUDACXX_CONSTEXPR
+    _LIBCUDACXX_INLINE_VISIBILITY constexpr
     barrier(_CUDA_VSTD::ptrdiff_t __expected, _CompletionF __completion = _CompletionF())
         : _CUDA_VSTD::__barrier_base<_CompletionF, _Sco>(__expected, __completion) {
     }
@@ -164,6 +164,40 @@ public:
                 new (&__b->__barrier) __barrier_base(__expected);
             )
         )
+    }
+
+    _LIBCUDACXX_NODISCARD_ATTRIBUTE _LIBCUDACXX_DEVICE
+    arrival_token arrive_tx(_CUDA_VSTD::ptrdiff_t __arrive_count_update,
+                            _CUDA_VSTD::ptrdiff_t __transaction_count_update) {
+#if (_LIBCUDACXX_DEBUG_LEVEL >= 2)
+        _LIBCUDACXX_DEBUG_ASSERT(__arrive_count_update >= 0);
+        _LIBCUDACXX_DEBUG_ASSERT(__transaction_count_update >= 0);
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#contents-of-the-mbarrier-object
+        // Maximum value of tx-count is 2^20 -1.
+        _LIBCUDACXX_DEBUG_ASSERT(__transaction_count_update <= (1 << 20) - 1);
+        _LIBCUDACXX_DEBUG_ASSERT(__isClusterShared(&__barrier));
+#endif
+        arrival_token __token = {};
+        NV_DISPATCH_TARGET(
+            NV_PROVIDES_SM_90, (
+                if (!__isShared(&__barrier)) {
+                    __trap(); // XXX: We do no support arriving on remote cluster barrier in this method.
+                }
+
+                asm volatile(
+                    "mbarrier.arrive.expect_tx.release.cta.shared::cta.b64 %0, [%1], %2;"
+                    : "=l"(__token)
+                    : "r"(static_cast<_CUDA_VSTD::uint32_t>(__cvta_generic_to_shared(&__barrier)))
+                    , "r"(static_cast<_CUDA_VSTD::uint32_t>(__transaction_count_update))
+                    : "memory");
+            ), NV_IS_DEVICE, (
+                // On architectures pre-SM90, we drop the transaction count
+                // update. The barriers do not keep track of transaction counts.
+                (void)__transaction_count_update;
+                __token = __barrier.arrive(__arrive_count_update);
+            )
+        )
+        return __token;
     }
 
     _LIBCUDACXX_NODISCARD_ATTRIBUTE _LIBCUDACXX_INLINE_VISIBILITY

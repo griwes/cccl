@@ -115,7 +115,7 @@ struct __exception_guard_noexceptions {
   __exception_guard_noexceptions& operator=(__exception_guard_noexceptions&&)      = delete;
 
   _LIBCUDACXX_INLINE_VISIBILITY _LIBCUDACXX_CONSTEXPR_AFTER_CXX17 _LIBCUDACXX_NODEBUG
-  void __complete() _NOEXCEPT {
+  void __complete() noexcept {
     __completed_ = true;
   }
 
@@ -139,7 +139,7 @@ using __exception_guard = __exception_guard_exceptions<_Rollback>;
 #endif
 
 template <class _Rollback>
-_LIBCUDACXX_INLINE_VISIBILITY _LIBCUDACXX_CONSTEXPR
+_LIBCUDACXX_INLINE_VISIBILITY constexpr
 __exception_guard<_Rollback> __make_exception_guard(_Rollback __rollback) {
   return __exception_guard<_Rollback>(_CUDA_VSTD::move(__rollback));
 }

@@ -28,11 +28,11 @@ inline constexpr bool is_constant_evaluated() noexcept {
 }
 #endif
 
-inline _LIBCUDACXX_CONSTEXPR _LIBCUDACXX_INLINE_VISIBILITY
-bool __libcpp_is_constant_evaluated() _NOEXCEPT { return _LIBCUDACXX_IS_CONSTANT_EVALUATED(); }
+inline constexpr _LIBCUDACXX_INLINE_VISIBILITY
+bool __libcpp_is_constant_evaluated() noexcept { return _LIBCUDACXX_IS_CONSTANT_EVALUATED(); }
 #else
-inline _LIBCUDACXX_CONSTEXPR _LIBCUDACXX_INLINE_VISIBILITY
-bool __libcpp_is_constant_evaluated() _NOEXCEPT { return false; }
+inline constexpr _LIBCUDACXX_INLINE_VISIBILITY
+bool __libcpp_is_constant_evaluated() noexcept { return false; }
 #endif // defined(_LIBCUDACXX_IS_CONSTANT_EVALUATED)
 
 _LIBCUDACXX_END_NAMESPACE_STD
