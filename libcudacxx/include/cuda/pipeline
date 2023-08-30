@@ -59,6 +59,18 @@
 
 _LIBCUDACXX_BEGIN_NAMESPACE_CUDA
 
+    // FIXME: cuda::barrier should provide arrive_tx at all scopes
+    _LIBCUDACXX_INLINE_VISIBILITY
+    inline void __arrive_tx(barrier<thread_scope_block> & __b, ptrdiff_t __arrive, ptrdiff_t __tx) {
+        (void)__b.arrive_tx(__arrive, __tx);
+    }
+
+    template<thread_scope _Scope>
+    _LIBCUDACXX_INLINE_VISIBILITY
+    inline void __arrive_tx(barrier<_Scope> & __b, ptrdiff_t __arrive, ptrdiff_t) {
+        (void)__b.arrive(__arrive);
+    }
+
     template<thread_scope _Scope>
     class pipeline;
 
@@ -178,7 +190,14 @@ NV_IF_TARGET(NV_IS_DEVICE,
         {
             barrier<_Scope> & __stage_barrier = __shared_state_get_stage(__head)->__produced;
             __barrier_cp_async_arrive_on(__stage_barrier);
+#if _LIBCUDACXX_CUDA_ABI_VERSION >= 5
+            // FIXME: cuda::barrier should provide arrive_tx at all scopes
+            //(void)__stage_barrier.arrive_tx(1, __rx_count);
+            __arrive_tx(__stage_barrier, 1, __rx_count);
+            __rx_count = 0;
+#else
             (void)__stage_barrier.arrive();
+#endif
             if (++__head == __stages_count) {
                 __head = 0;
                 __consumed_phase_parity = !__consumed_phase_parity;
@@ -229,20 +248,22 @@ NV_IF_TARGET(NV_IS_DEVICE,
         bool __consumed_phase_parity : 1;
         bool __produced_phase_parity : 1;
         bool __active                : 1;
-        // TODO: Remove partitioned on next ABI break
+#if _LIBCUDACXX_CUDA_ABI_VERSION < 5
         const bool __partitioned     : 1;
+#endif
         char * const __shared_state;
-
+#if _LIBCUDACXX_CUDA_ABI_VERSION >= 5
+        uint32_t __rx_count          = 0;
+#endif
 
         _LIBCUDACXX_INLINE_VISIBILITY
-        pipeline(char * __shared_state, uint8_t __stages_count, bool __partitioned)
+        pipeline(char * __shared_state, uint8_t __stages_count)
             : __head(0)
             , __tail(0)
             , __stages_count(__stages_count)
             , __consumed_phase_parity(true)
             , __produced_phase_parity(false)
             , __active(true)
-            , __partitioned(__partitioned)
             , __shared_state(__shared_state)
         {}
 
@@ -271,6 +292,12 @@ NV_IF_TARGET(NV_IS_DEVICE,
         template<class _Group, thread_scope _Pipeline_scope, uint8_t _Pipeline_stages_count>
         friend _LIBCUDACXX_INLINE_VISIBILITY
         pipeline<_Pipeline_scope> make_pipeline(const _Group & __group, pipeline_shared_state<_Pipeline_scope, _Pipeline_stages_count> * __shared_state, pipeline_role __role);
+
+        template<typename _Sync, __tx_api _Tx, typename _Arch, typename _Alignment, __space _OutSpace, __space _InSpace, __space _SyncSpace, typename>
+        friend struct __memcpy_async_sync_hooks;
+
+        template<typename _SyncObject, __space _SyncSpace>
+        friend struct __shared_memory_barrier_provider;
     };
 
     template<class _Group, thread_scope _Scope, uint8_t _Stages_count>
@@ -289,7 +316,7 @@ NV_IF_TARGET(NV_IS_DEVICE,
         }
         __group.sync();
 
-        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count, false);
+        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count);
     }
 
     template<class _Group, thread_scope _Scope, uint8_t _Stages_count>
@@ -309,7 +336,7 @@ NV_IF_TARGET(NV_IS_DEVICE,
         }
         __group.sync();
 
-        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count, true);
+        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count);
     }
 
     template<class _Group, thread_scope _Scope, uint8_t _Stages_count>
@@ -353,7 +380,7 @@ NV_IF_TARGET(NV_IS_DEVICE,
         }
         __group.sync();
 
-        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count, true);
+        return pipeline<_Scope>(reinterpret_cast<char*>(__shared_state->__stages), _Stages_count);
     }
 
 _LIBCUDACXX_END_NAMESPACE_CUDA
@@ -520,13 +547,48 @@ _LIBCUDACXX_BEGIN_NAMESPACE_CUDA
         )
     }
 
-    template<thread_scope _Sco, __tx_api _Tx, typename _Arch, __space _OutSpace, __space _InSpace, __space _SyncSpace>
+#if _LIBCUDACXX_CUDA_ABI_VERSION >= 5
+    template<__space _SyncSpace>
+    struct __shared_memory_barrier_provider<pipeline<thread_scope_block>, _SyncSpace> {
+        _LIBCUDACXX_INLINE_VISIBILITY
+        static _CUDA_VSTD::uint64_t * __get_barrier(pipeline<thread_scope_block> & __pipe) {
+            NV_IF_TARGET(NV_PROVIDES_SM_80,
+                auto & __barrier = __pipe.__shared_state_get_stage(__pipe.__head)->__produced;;
+                if (__isShared(&__barrier)) {
+                    return device::barrier_native_handle(__barrier);
+                }
+            )
+            return nullptr;
+        }
+    };
+#endif
+
+    template<thread_scope _Sco, __tx_api _Tx, typename _Arch, typename _Alignment, __space _OutSpace, __space _InSpace, __space _SyncSpace>
     struct __memcpy_async_sync_hooks<
-        pipeline<_Sco>, _Tx, _Arch,
+        pipeline<_Sco>, _Tx, _Arch, _Alignment,
         _OutSpace, _InSpace, _SyncSpace
     > {
+#if _LIBCUDACXX_CUDA_ABI_VERSION >= 5
+        template<typename _Group, thread_scope _Scope = _Sco,
+            _CUDA_VSTD::__enable_if_t<_Scope == thread_scope_block && _OutSpace == __space::__shared && _InSpace == __space::__global>
+        >
         __host__ __device__
-        static async_contract_fulfillment __synchronize(_Arch, pipeline<_Sco> &, async_contract_fulfillment __acf) {
+        static async_contract_fulfillment __synchronize(
+            _Group && __g, __arch::__cuda<90>, __alignment<16>,
+            pipeline<thread_scope_block> & __pipe, _CUDA_VSTD::size_t __size, async_contract_fulfillment __acf
+        ) {
+            if (__acf == async_contract_fulfillment::async && __g.thread_rank() == 0) {
+                NV_IF_TARGET(NV_PROVIDES_SM_90, 
+                    __pipe.__rx_count += __size;
+                )
+            }
+            return __acf;
+        }
+#endif
+
+        template<typename _Group>
+        __host__ __device__
+        static async_contract_fulfillment __synchronize(_Group &&, _Arch, _Alignment, pipeline<_Sco> &, _CUDA_VSTD::size_t, async_contract_fulfillment __acf) {
             // synchronization performed explicitly using pipeline functions
             return __acf;
         }
