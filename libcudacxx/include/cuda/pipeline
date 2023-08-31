@@ -551,14 +551,14 @@ _LIBCUDACXX_BEGIN_NAMESPACE_CUDA
     template<__space _SyncSpace>
     struct __shared_memory_barrier_provider<pipeline<thread_scope_block>, _SyncSpace> {
         _LIBCUDACXX_INLINE_VISIBILITY
-        static _CUDA_VSTD::uint64_t * __get_barrier(pipeline<thread_scope_block> & __pipe) {
-            NV_IF_TARGET(NV_PROVIDES_SM_80,
+        static _CUDA_VSTD::pair<bool, _CUDA_VSTD::uint64_t *> __get_barrier(pipeline<thread_scope_block> & __pipe) {
+            NV_IF_TARGET(NV_PROVIDES_SM_80, (
                 auto & __barrier = __pipe.__shared_state_get_stage(__pipe.__head)->__produced;;
                 if (__isShared(&__barrier)) {
-                    return device::barrier_native_handle(__barrier);
+                    return { true, device::barrier_native_handle(__barrier) };
                 }
-            )
-            return nullptr;
+            ))
+            return { false, nullptr };
         }
     };
 #endif

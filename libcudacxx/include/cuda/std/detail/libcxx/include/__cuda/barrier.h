@@ -625,6 +625,17 @@ void __barrier_cp_async_arrive_on(barrier<_Sco, _CompF> & __b) {
     __dispatch_architecture<void>(__barrier_arrive_on_dispatcher(__b));
 }
 
+template<>
+struct __shared_memory_barrier_provider<barrier<thread_scope_block>, __space::__shared> {
+    _LIBCUDACXX_INLINE_VISIBILITY
+    static _CUDA_VSTD::pair<bool, _CUDA_VSTD::uint64_t *> __get_barrier(barrier<thread_scope_block> & __barrier) {
+        NV_IF_TARGET(NV_PROVIDES_SM_80, (
+            return { true, device::barrier_native_handle(__barrier) };
+        ))
+        return { false, nullptr };
+    }
+};
+
 template<thread_scope _Sco, typename _CompF, _CUDA_VSTD::size_t _ProvidedSM, typename _Alignment, __space _SyncSpace>
 struct __memcpy_async_sync_hooks<
     barrier<_Sco, _CompF>, __tx_api::__no, __arch::__cuda<_ProvidedSM>, _Alignment,

@@ -231,8 +231,8 @@ _LIBCUDACXX_INLINE_VISIBILITY async_contract_fulfillment __dispatch_alignment_bi
 template<typename _SyncObject, __space _SyncSpace>
 struct __shared_memory_barrier_provider {
     _LIBCUDACXX_INLINE_VISIBILITY
-    static _CUDA_VSTD::uint64_t * __get_barrier(_SyncObject & __sync) {
-        return nullptr;
+    static _CUDA_VSTD::pair<bool, ::uint64_t *> __get_barrier(_SyncObject & __sync) {
+        return { false, nullptr };
     }
 };
 
@@ -327,10 +327,10 @@ __device__
 async_contract_fulfillment __cp_async_bulk_shared_global(char * __out_ptr, const char * __in_ptr, _CUDA_VSTD::size_t __size, _CUDA_VSTD::uint64_t * __barrier) {
     asm volatile(
         "cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];\n"
-            :: "l"(__cvta_generic_to_shared(__out_ptr)),
+            :: "r"(static_cast<_CUDA_VSTD::uint32_t>(__cvta_generic_to_shared(__out_ptr))),
                 "l"(__cvta_generic_to_global(__in_ptr)),
                 "r"(static_cast<_CUDA_VSTD::uint32_t>(__size)),
-                "l"(__cvta_generic_to_shared(__barrier))
+                "r"(static_cast<_CUDA_VSTD::uint32_t>(__cvta_generic_to_shared(__barrier)))
             : "memory");
     return async_contract_fulfillment::async;
 }
@@ -391,11 +391,12 @@ struct __memcpy_async_default_aligned_impl<
         _CUDA_VSTD::size_t __size,
         _Sync & __sync
     ) {
-        if (auto * __barrier = __shared_memory_barrier_provider<_Sync, _SyncSpace>::__get_barrier(__sync)) {
+        auto __b = __shared_memory_barrier_provider<_Sync, _SyncSpace>::__get_barrier(__sync);
+        if (__b.first) {
             // NOTE: if we decide to only do cp.async.bulk for sizes above some cutoff, also update the sync hooks for barrier and pipeline
             // to include the same logic.
             if (__g.thread_rank() == 0) {
-                return __cp_async_bulk_shared_global<16>(__out_ptr, __in_ptr, __size, __barrier);
+                return __cp_async_bulk_shared_global<16>(__out_ptr, __in_ptr, __size, __b.second);
             }
         }
         return __memcpy_async(__arch::__cuda<80>(), __alignment<16>(), __g, __out_ptr, __in_ptr, __size, __sync);
