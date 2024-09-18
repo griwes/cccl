@@ -1,0 +1,154 @@
+// -*- C++ -*-
+#ifndef _LIBCUDACXX_FLOAT
+#define _LIBCUDACXX_FLOAT
+
+#include <cuda/std/detail/__config>
+
+#if defined(_CCCL_IMPLICIT_SYSTEM_HEADER_GCC)
+#  pragma GCC system_header
+#elif defined(_CCCL_IMPLICIT_SYSTEM_HEADER_CLANG)
+#  pragma clang system_header
+#elif defined(_CCCL_IMPLICIT_SYSTEM_HEADER_MSVC)
+#  pragma system_header
+#endif // no system header
+
+#include <cuda/__float/arithmetic.h>
+#include <cuda/__float/conversions.h>
+#include <cuda/__float/generated.h>
+#include <cuda/__float/representation.h>
+#include <cuda/std/array>
+#include <cuda/std/bitset>
+#include <cuda/std/cmath>
+#include <cuda/std/limits>
+
+_LIBCUDACXX_BEGIN_NAMESPACE_CUDA
+
+// floating_point: the interface class for custom-exponent-and-mantissa types.
+
+template <class _Fp,
+          class _OtherFp,
+          class _FTr = __float_repr_traits<_Fp>,
+          class _OTr = __float_repr_traits<_OtherFp>,
+          class      = void>
+struct __can_represent_exactly : _CUDA_VSTD::false_type
+{};
+
+template <class _Fp, class _OtherFp, class _FTr, class _OTr>
+struct __can_represent_exactly<
+  _Fp,
+  _OtherFp,
+  _FTr,
+  _OTr,
+  decltype(_FTr::__radix, _OTr::__radix, _FTr::__exponent, _OTr::__exponent, _FTr::__mantissa, _OTr::__mantissa, void())>
+    : _CUDA_VSTD::bool_constant<_FTr::__radix == _OTr::__radix && _FTr::__exponent >= _OTr::__exponent
+                                && _FTr::__mantissa >= _OTr::__mantissa>
+{};
+
+template <_CUDA_VSTD::size_t _Radix, _CUDA_VSTD::size_t _Exponent, _CUDA_VSTD::size_t _Mantissa>
+class floating_point;
+
+template <class _Fp>
+struct __is_cccl_floating_point : _CUDA_VSTD::false_type
+{};
+
+template <_CUDA_VSTD::size_t _Radix, _CUDA_VSTD::size_t _Exponent, _CUDA_VSTD::size_t _Mantissa>
+struct __is_cccl_floating_point<floating_point<_Radix, _Exponent, _Mantissa>> : _CUDA_VSTD::true_type
+{};
+
+template <class _Fp>
+using __float_repr_of = decltype(__cuda_float_get_representation(_CUDA_VSTD::declval<_Fp>()));
+
+template <_CUDA_VSTD::size_t _Exponent, _CUDA_VSTD::size_t _Mantissa>
+class floating_point<2, _Exponent, _Mantissa>
+{
+  using __repr_t = __float_repr<2, _Exponent, _Mantissa>;
+  __repr_t __repr;
+
+public:
+  _LIBCUDACXX_INLINE_VISIBILITY friend constexpr __repr_t __cuda_float_get_representation(const floating_point& __self)
+  {
+    return __self.__repr;
+  }
+
+  template <class _OtherFp,
+            class _OtherRepr = __float_repr_of<_OtherFp>,
+            class            = _CUDA_VSTD::__enable_if_t<__can_represent_exactly<__repr_t, _OtherRepr>::value>>
+  _LIBCUDACXX_INLINE_VISIBILITY constexpr floating_point(const _OtherFp& __other)
+      : __repr(
+          __cuda_float_convert_into(_CUDA_VSTD::type_identity<__repr_t>(), __cuda_float_get_representation(__other)))
+  {}
+
+  template <class _OtherFp,
+            class _OtherRepr = __float_repr_of<_OtherFp>,
+            class            = _CUDA_VSTD::__enable_if_t<!__can_represent_exactly<__repr_t, _OtherRepr>::value>,
+            class            = void>
+  _LIBCUDACXX_INLINE_VISIBILITY explicit constexpr floating_point(const _OtherFp& __other)
+      : __repr(
+          __cuda_float_convert_into(_CUDA_VSTD::type_identity<__repr_t>(), __cuda_float_get_representation(__other)))
+  {}
+
+  template <class _OtherFp>
+  _LIBCUDACXX_INLINE_VISIBILITY explicit constexpr operator _OtherFp() const
+  {
+    return __cuda_float_convert_into(_CUDA_VSTD::type_identity<_OtherFp>(), __repr);
+  }
+
+  _LIBCUDACXX_INLINE_VISIBILITY friend constexpr floating_point
+  operator+(const floating_point& __lhs, const floating_point& __rhs)
+  {
+    return __cuda_float_add(__lhs.__repr, __rhs.__repr);
+  }
+
+  _LIBCUDACXX_INLINE_VISIBILITY friend constexpr floating_point
+  operator-(const floating_point& __lhs, floating_point __rhs)
+  {
+    return __cuda_float_sub(__lhs.__repr, __rhs.__repr);
+  }
+
+  _LIBCUDACXX_INLINE_VISIBILITY friend constexpr floating_point
+  operator*(const floating_point& __lhs, const floating_point& __rhs)
+  {
+    return __cuda_float_mul(__lhs.__repr, __rhs.__repr);
+  }
+
+  _LIBCUDACXX_INLINE_VISIBILITY friend constexpr floating_point
+  operator/(const floating_point& __lhs, const floating_point& __rhs)
+  {
+    return __cuda_float_div(__lhs.__repr, __rhs.__repr);
+  }
+};
+
+// Typedefs of floating_point for specific, commonly used cases.
+
+template <_CUDA_VSTD::size_t _Exponent, _CUDA_VSTD::size_t _Mantissa>
+using binary_floating_point = floating_point<2, _Exponent, _Mantissa>;
+
+using float16_t = binary_floating_point<5, 10>;
+static_assert(sizeof(float16_t) * CHAR_BIT == 16);
+static_assert(alignof(float16_t) * CHAR_BIT == 16);
+
+using float32_t =
+  _CUDA_VSTD::conditional_t<_CUDA_VSTD::numeric_limits<float>::is_iec559, float, binary_floating_point<8, 23>>;
+using float64_t =
+  _CUDA_VSTD::conditional_t<_CUDA_VSTD::numeric_limits<double>::is_iec559, double, binary_floating_point<11, 52>>;
+
+using float128_t = binary_floating_point<15, 112>;
+static_assert(sizeof(float128_t) * CHAR_BIT == 128);
+static_assert(alignof(float128_t) * CHAR_BIT == 128);
+
+using bfloat16_t = binary_floating_point<8, 7>;
+static_assert(sizeof(bfloat16_t) * CHAR_BIT == 16);
+static_assert(alignof(bfloat16_t) * CHAR_BIT == 16);
+
+// User-facing traits.
+
+template <class _Fp>
+struct is_floating_point
+    : _CUDA_VSTD::bool_constant<_CUDA_VSTD::is_floating_point<_Fp>::value || __is_cccl_floating_point<_Fp>::value>
+{};
+
+// TODO(mdominiak): __half, __bfloat16 specializations of the above
+
+_LIBCUDACXX_END_NAMESPACE_CUDA
+
+#endif // _LIBCUDACXX_FLOAT

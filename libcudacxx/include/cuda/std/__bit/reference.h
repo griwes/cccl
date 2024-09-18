@@ -1239,13 +1239,13 @@ public:
     return !(__x < __y);
   }
 
-private:
   _LIBCUDACXX_HIDE_FROM_ABI _LIBCUDACXX_INLINE_VISIBILITY
   _CCCL_CONSTEXPR_CXX14 explicit __bit_iterator(__storage_pointer __s, unsigned __ctz) noexcept
       : __seg_(__s)
       , __ctz_(__ctz)
   {}
 
+private:
   friend typename _Cp::__self;
 
   friend class __bit_reference<_Cp>;

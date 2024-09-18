@@ -1,44 +1,67 @@
-## Codegen adds the following build targets
-#    libcudacxx.atomics.codegen
-#    libcudacxx.atomics.codegen.install
+## Codegen adds the following targets for each codegen source:
+## Build targets:
+#    libcudacxx.codegen.${name}
+#    libcudacxx.codegen.${name}.execute
+#    libcudacxx.codegen.${name}.install
 ## Test targets:
-#    libcudacxx.test.atomics.codegen.diff
+#    libcudacxx.test.codegen.${name}.diff
+## Current codegen sources:
+#    atomic
+#    float
+#    float_test
 
 include(${CMAKE_SOURCE_DIR}/cub/cmake/CPM.cmake)
 CPMAddPackage("gh:fmtlib/fmt#11.0.1")
 
-add_executable(
-    codegen
-    EXCLUDE_FROM_ALL
-    codegen.cpp
-)
+add_custom_target(libcudacxx.codegen)
+add_custom_target(libcudacxx.codegen.execute)
+add_custom_target(libcudacxx.codegen.install)
 
-target_link_libraries(codegen PRIVATE fmt)
+function(add_libcudacxx_codegen name destination)
+    add_custom_target(libcudacxx.codegen.${name})
+    add_dependencies(libcudacxx.codegen libcudacxx.codegen.${name})
 
-set_property(TARGET codegen PROPERTY CXX_STANDARD 17)
+    cmake_path(GET destination FILENAME filename)
+    set(generated_output "${libcudacxx_BINARY_DIR}/codegen/${name}-${filename}")
 
-set(atomic_generated_output "${libcudacxx_BINARY_DIR}/codegen/cuda_ptx_generated.h")
-set(atomic_install_location "${libcudacxx_SOURCE_DIR}/include/cuda/std/__atomic/functions")
+    add_executable(
+        codegen.${name}
+        EXCLUDE_FROM_ALL
+        ${name}.cpp
+    )
 
-add_custom_target(
-    libcudacxx.atomics.codegen
-    COMMAND codegen "${atomic_generated_output}"
-    BYPRODUCTS "${atomic_generated_output}"
-)
+    target_link_libraries(codegen.${name} PRIVATE fmt)
 
-add_custom_target(
-    libcudacxx.atomics.codegen.install
-    COMMAND ${CMAKE_COMMAND} -E copy "${atomic_generated_output}" "${atomic_install_location}/cuda_ptx_generated.h"
-    DEPENDS libcudacxx.atomics.codegen
-    BYPRODUCTS "${atomic_install_location}/cuda_ptx_generated.h"
-)
+    set_property(TARGET codegen.${name} PROPERTY CXX_STANDARD 17)
 
-add_test(
-    NAME libcudacxx.test.atomics.codegen.diff
-    COMMAND ${CMAKE_COMMAND} -E compare_files "${atomic_install_location}/cuda_ptx_generated.h" "${atomic_generated_output}"
-)
+    add_custom_target(
+        libcudacxx.codegen.${name}.execute
+        COMMAND codegen.${name} "${generated_output}"
+        BYPRODUCTS "${generated_output}"
+    )
+    add_dependencies(libcudacxx.codegen.${name} libcudacxx.codegen.${name}.execute)
+    add_dependencies(libcudacxx.codegen.execute libcudacxx.codegen.${name}.execute)
 
-set_tests_properties(
-    libcudacxx.test.atomics.codegen.diff
-    PROPERTIES REQUIRED_FILES "${atomic_generated_output}"
-)
+    add_custom_target(
+        libcudacxx.codegen.${name}.install
+        COMMAND ${CMAKE_COMMAND} -E copy "${generated_output}" "${destination}"
+        DEPENDS libcudacxx.codegen.${name}
+        BYPRODUCTS "${destination}"
+    )
+    add_dependencies(libcudacxx.codegen.${name}.install libcudacxx.codegen.${name}.execute)
+    add_dependencies(libcudacxx.codegen.install libcudacxx.codegen.${name}.install)
+
+    add_test(
+        NAME libcudacxx.test.codegen.${name}.diff
+        COMMAND ${CMAKE_COMMAND} -E compare_files "${destination}" "${generated_output}"
+    )
+
+    set_tests_properties(
+        libcudacxx.test.codegen.${name}.diff
+        PROPERTIES REQUIRED_FILES "${generated_output}"
+    )
+endfunction()
+
+add_libcudacxx_codegen(atomic "${libcudacxx_SOURCE_DIR}/include/cuda/std/__atomic/functions/cuda_ptx_generated.h")
+add_libcudacxx_codegen(float "${libcudacxx_SOURCE_DIR}/include/cuda/__float/generated.h")
+add_libcudacxx_codegen(float_test "${libcudacxx_SOURCE_DIR}/test/libcudacxx/cuda/float/template.fp/testcases.h")
